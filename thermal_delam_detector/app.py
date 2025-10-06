@@ -103,7 +103,7 @@ class ThermalDelamApp:
     """Tkinter based desktop application."""
 
     def __init__(self) -> None:
-        self.root = self._create_root()
+        self.root, self._dnd_available = self._create_root()
         self.state = GUIState()
         self.processor = ImageProcessor()
         self.preview_photo: Optional[ImageTk.PhotoImage] = None
@@ -146,15 +146,26 @@ class ThermalDelamApp:
     # GUI construction helpers
     # ------------------------------------------------------------------
 
-    def _create_root(self) -> tk.Tk:
+    def _create_root(self) -> tuple[tk.Tk, bool]:
+        dnd_available = False
         if TkinterDnD is not None:
-            root = TkinterDnD.Tk()
+            try:
+                root = TkinterDnD.Tk()
+            except Exception as exc:
+                print(
+                    "Warning: TkinterDnD could not be initialised. Drag-and-drop support will be disabled.",
+                    file=sys.stderr,
+                )
+                print(f"Reason: {exc}", file=sys.stderr)
+                root = tk.Tk()
+            else:
+                dnd_available = DND_FILES is not None
         else:
             root = tk.Tk()
         root.title("Thermal Delamination Detector")
         root.geometry("1200x720")
         root.minsize(1100, 640)
-        return root
+        return root, dnd_available
 
     def _build_style(self) -> None:
         style = ttk.Style(self.root)
@@ -332,7 +343,7 @@ class ThermalDelamApp:
             style="Hint.TLabel",
         ).grid(column=0, row=6, sticky="w", pady=(10, 0))
 
-        if TkinterDnD is not None and DND_FILES is not None:
+        if self._dnd_available and DND_FILES is not None:
             self.root.drop_target_register(DND_FILES)
             self.root.dnd_bind("<<Drop>>", self._handle_drop)
 
