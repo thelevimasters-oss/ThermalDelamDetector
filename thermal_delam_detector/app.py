@@ -6,7 +6,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Optional
+from typing import Callable, Optional
 
 import sys
 
@@ -109,6 +109,8 @@ class ThermalDelamApp:
         self.preview_photo: Optional[ImageTk.PhotoImage] = None
         self.settings_window: Optional[tk.Toplevel] = None
         self.tooltips: list[Tooltip] = []
+        self._stop_event = threading.Event()
+        self._worker_thread: Optional[threading.Thread] = None
 
         self.threshold_var = tk.DoubleVar(value=self.processor.config.hotspot_percentile)
         self.min_cluster_var = tk.IntVar(value=self.processor.config.min_cluster_size)
@@ -134,6 +136,7 @@ class ThermalDelamApp:
         self._refresh_settings_labels()
         self._bind_shortcuts()
         self._update_status("Drop a folder of RJPG images or choose one to begin.")
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         try:
             self._preview_resample = Image.Resampling.LANCZOS
         except AttributeError:  # pragma: no cover - Pillow < 9
@@ -690,38 +693,55 @@ class ThermalDelamApp:
         self._update_status("Exporting annotated images…")
         self.preview_hint_var.set("Export in progress. You can monitor progress from the status panel on the right.")
 
-        threading.Thread(
+        self._stop_event.clear()
+        self._worker_thread = threading.Thread(
             target=self._process_images_worker,
             args=(images, output_folder),
             daemon=True,
-        ).start()
+        )
+        self._worker_thread.start()
 
     def _process_images_worker(self, images: list[Path], output_folder: Path) -> None:
+        completed = False
         try:
             for idx, image_path in enumerate(images, start=1):
+                if self._stop_event.is_set():
+                    break
                 result = self.processor.process_image(image_path)
+                if self._stop_event.is_set():
+                    break
                 destination = output_folder / f"{image_path.stem}_processed.jpg"
                 save_with_metadata(result.overlay_image, destination, result.exif_bytes)
-                self.progress.after(
-                    0, lambda value=idx: self.progress.configure(value=value)
+                self._schedule_ui(self.progress.configure, value=idx)
+            else:
+                completed = True
+            if self._stop_event.is_set():
+                self._update_status_async("Processing cancelled.")
+            elif completed:
+                self._update_status_async(
+                    f"Export complete. Annotated images saved to {output_folder}."
                 )
-            self._update_status_async(
-                f"Export complete. Annotated images saved to {output_folder}."
-            )
         except Exception as exc:  # pragma: no cover - user feedback path
             self._update_status_async(f"Processing stopped: {exc}")
-            self.root.after(0, lambda: messagebox.showerror("Processing error", str(exc)))
+            self._schedule_ui(lambda: messagebox.showerror("Processing error", str(exc)))
         finally:
-            self.progress.after(0, self._processing_finished)
+            self._schedule_ui(self._processing_finished)
 
     def _processing_finished(self) -> None:
-        self.state.processing = False
-        self.export_button.configure(state=tk.NORMAL)
-        self.progress.configure(value=0)
-        if self.state.latest_result is not None:
-            self.preview_hint_var.set(
-                "Export finished. Adjust settings if needed and refresh the preview to validate the changes."
-            )
+        try:
+            self.state.processing = False
+            self.export_button.configure(state=tk.NORMAL)
+            self.progress.configure(value=0)
+            if self.state.latest_result is not None and not self._stop_event.is_set():
+                self.preview_hint_var.set(
+                    "Export finished. Adjust settings if needed and refresh the preview to validate the changes."
+                )
+        except tk.TclError:
+            pass
+        finally:
+            self._worker_thread = None
+            if not self.state.processing and not self._stop_event.is_set():
+                self._stop_event.clear()
 
     # ------------------------------------------------------------------
     # Status helpers
@@ -732,7 +752,28 @@ class ThermalDelamApp:
         self.status_var.set(message)
 
     def _update_status_async(self, message: str) -> None:
-        self.root.after(0, self._update_status, message)
+        self._schedule_ui(self._update_status, message)
+
+    def _schedule_ui(self, func: Callable[..., object], *args, **kwargs) -> None:
+        def _callback() -> None:
+            try:
+                func(*args, **kwargs)
+            except tk.TclError:
+                pass
+
+        try:
+            self.root.after(0, _callback)
+        except tk.TclError:
+            pass
+
+    def _on_close(self) -> None:
+        self._stop_event.set()
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._update_status("Shutting down…")
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------------
     # Main loop
