@@ -35,7 +35,9 @@ python main.py
 python -m thermal_delam_detector.app
 ```
 
-Both commands call the same `launch()` function that builds the GUI and starts the mainloop. When the window opens:
+Both commands call the same `launch()` function that builds the GUI and starts the mainloop. The `main.py` entry point will
+automatically install required Python dependencies (``Pillow`` and ``numpy``) and will attempt to install the optional
+``tkinterdnd2`` package for drag-and-drop support, making it a one-stop launch script. When the window opens:
 
 1. Drop a folder of RJPG/JPEG/TIFF thermal images onto the window or choose it via the **Browse** button.
 2. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
