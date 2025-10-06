@@ -204,7 +204,11 @@ def _binary_dilate(mask: np.ndarray, kernel_size: int) -> np.ndarray:
 def _binary_erode(mask: np.ndarray, kernel_size: int) -> np.ndarray:
     kernel = np.ones((kernel_size, kernel_size), dtype=bool)
     pad = kernel_size // 2
-    padded = np.pad(mask, pad, mode="constant", constant_values=True)
+    # Use ``False`` for the padded border so erosion behaves like standard
+    # morphological erosion where pixels outside the image are treated as
+    # background. Using ``True`` incorrectly preserved edge pixels and meant
+    # erosion/ opening operations were ineffective at the borders.
+    padded = np.pad(mask, pad, mode="constant", constant_values=False)
     result = np.ones_like(mask, dtype=bool)
     for y in range(kernel_size):
         for x in range(kernel_size):
