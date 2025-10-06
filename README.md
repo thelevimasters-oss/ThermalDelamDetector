@@ -39,6 +39,8 @@ Both commands call the same `launch()` function that builds the GUI and starts t
 automatically install required Python dependencies (``Pillow`` and ``numpy``) and will attempt to install the optional
 ``tkinterdnd2`` package for drag-and-drop support, making it a one-stop launch script. When the window opens:
 
+> **Windows users:** The launcher assumes a graphical desktop is present, so you can simply run `python main.py` (or `py -3 main.py`) and the GUI will open. There is no need to set a `DISPLAY` environment variable on Windows; just ensure your Python installation includes the optional Tcl/Tk components.
+
 1. Drop a folder of RJPG/JPEG/TIFF thermal images onto the window or choose it via the **Browse** button.
 2. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
 3. Click **Process images** to export annotated overlays to the selected output folder (defaults to `<input>/processed`).

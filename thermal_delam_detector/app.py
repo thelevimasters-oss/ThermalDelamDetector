@@ -802,6 +802,10 @@ def _display_available() -> bool:
     if _DISPLAY_AVAILABLE is not None:
         return _DISPLAY_AVAILABLE
 
+    if sys.platform.startswith("win"):
+        _DISPLAY_AVAILABLE = True
+        return _DISPLAY_AVAILABLE
+
     try:
         root = tk.Tk()
     except tk.TclError:
@@ -869,8 +873,9 @@ def launch(*, force_gui: bool = False) -> None:
     if not force_gui and not _display_available():
         message = (
             "The graphical interface could not be started because Tk was unable to initialise. "
-            "Ensure that a display server is available (for example by setting the DISPLAY "
-            "environment variable) before launching the application.\n\n"
+            "Ensure that a display server is available (for example an X/Wayland session on Linux "
+            "or the default Windows desktop) before launching the application. On Windows make "
+            "sure that Python was installed with the optional Tcl/Tk components.\n\n"
             "If you are running the tool on a headless machine, launch the batch processor instead "
             "with `python main.py --input <folder-with-images>` (optionally add --output to choose "
             "the destination)."
@@ -885,8 +890,9 @@ def launch(*, force_gui: bool = False) -> None:
     except tk.TclError as exc:  # pragma: no cover - depends on runtime environment
         message = (
             "The graphical interface could not be started because Tk was unable to initialise. "
-            "Ensure that a display server is available (for example by setting the DISPLAY "
-            "environment variable) before launching the application.\n\n"
+            "Ensure that a display server is available (for example an X/Wayland session on Linux "
+            "or the default Windows desktop) before launching the application. On Windows make "
+            "sure that Python was installed with the optional Tcl/Tk components.\n\n"
             "If you are running the tool on a headless machine, launch the batch processor instead "
             "with `python main.py --input <folder-with-images>` (optionally add --output to choose "
             "the destination)."
