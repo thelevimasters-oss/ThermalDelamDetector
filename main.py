@@ -109,11 +109,21 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def _display_available() -> bool:
     """Return ``True`` if Tk can successfully open a display."""
 
+    # Windows bundles an embedded display server with Tk, so if ``tkinter`` can
+    # be imported we assume the GUI can launch without probing further. Creating
+    # a root window is still safe on Windows, but skipping it avoids spurious
+    # ``TclError`` exceptions on systems where the display is available yet Tk
+    # momentarily fails to initialise during the probe (for example when Python
+    # starts before the shell session is ready). Other platforms still create a
+    # temporary root window to confirm that Tk can talk to the system display.
     try:
         import tkinter as tk
     except ModuleNotFoundError:
         # Tk is not available, so launching the GUI would fail.
         return False
+
+    if sys.platform.startswith("win"):
+        return True
 
     try:
         root = tk.Tk()
