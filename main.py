@@ -328,6 +328,45 @@ def _run_cli(args: argparse.Namespace) -> None:
     )
 
 
+def _maybe_prompt_for_input(args: argparse.Namespace) -> argparse.Namespace | None:
+    """Request an input folder interactively when running headlessly.
+
+    In GUI mode the user can choose a folder from the interface. When no display
+    is available we provide a small console prompt so the tool remains usable in
+    terminal-only environments. Returning ``None`` signals that no interactive
+    input could be obtained and the program should fall back to the standard
+    error message.
+    """
+
+    if args.input is not None:
+        return args
+
+    if not sys.stdin.isatty():
+        return None
+
+    print(
+        "No graphical display detected. Enter the path to the folder containing "
+        "images to process (leave blank to cancel)."
+    )
+
+    while True:
+        try:
+            response = input("Input folder: ").strip()
+        except EOFError:
+            return None
+
+        if not response:
+            print("No folder provided. Exiting.")
+            return None
+
+        candidate = Path(response).expanduser().resolve()
+        if candidate.exists() and candidate.is_dir():
+            args.input = candidate
+            return args
+
+        print(f"Folder does not exist or is not a directory: {candidate}")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv)
     ensure_dependencies()
@@ -338,6 +377,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     display_status = _display_status()
     if not args.force_gui and not display_status.available:
+        prompted_args = _maybe_prompt_for_input(args)
+        if prompted_args is not None and prompted_args.input is not None:
+            _run_cli(prompted_args)
+            return
+
         message = [
             "The graphical interface could not be started because Tk was unable to initialise.",
         ]
