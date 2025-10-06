@@ -15,13 +15,20 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - handled at runtime
     Image = None  # type: ignore[assignment]
     ImageTk = None  # type: ignore[assignment]
-    _PIL_IMPORT_ERROR = exc
+    _PIL_IMPORT_ERROR: ModuleNotFoundError | None = exc
 else:
     _PIL_IMPORT_ERROR = None
 
+_DEPENDENCY_ERROR: ModuleNotFoundError | None = None
+
 if _PIL_IMPORT_ERROR is None:
-    from .io_utils import discover_images, ensure_output_folder, save_with_metadata
-    from .processing import ImageProcessor, ProcessingResult
+    try:
+        from .io_utils import discover_images, ensure_output_folder, save_with_metadata
+        from .processing import ImageProcessor, ProcessingResult
+    except ModuleNotFoundError as exc:  # pragma: no cover - dependency missing path
+        discover_images = ensure_output_folder = save_with_metadata = None  # type: ignore[assignment]
+        ImageProcessor = ProcessingResult = None  # type: ignore[assignment]
+        _DEPENDENCY_ERROR = exc
 else:  # pragma: no cover - dependency missing path
     discover_images = ensure_output_folder = save_with_metadata = None  # type: ignore[assignment]
     ImageProcessor = ProcessingResult = None  # type: ignore[assignment]
@@ -735,20 +742,40 @@ class ThermalDelamApp:
         self.root.mainloop()
 
 
+def _show_dependency_error(title: str, message: str) -> None:
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(title, message)
+        root.destroy()
+    except tk.TclError:
+        print(f"ERROR: {message}", file=sys.stderr)
+
+
+def _format_dependency_message(exc: ModuleNotFoundError) -> str:
+    missing = exc.name or "a required library"
+    if missing in {"numpy", "PIL", "Pillow"}:
+        package = "pillow" if missing in {"PIL", "Pillow"} else missing
+        return (
+            f"The {missing} library is required to run the Thermal Delamination Detector. "
+            f"Install it with `pip install {package}` and restart the application."
+        )
+    return (
+        "A required dependency could not be imported. "
+        "Install the missing package and restart the application."
+    )
+
+
 def launch() -> None:
     if _PIL_IMPORT_ERROR is not None:
-        message = (
-            "The Pillow library is required to run the Thermal Delamination Detector. "
-            "Install it with `pip install pillow` and restart the application."
-        )
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("Missing dependency", message)
-            root.destroy()
-        except tk.TclError:
-            print(f"ERROR: {message}", file=sys.stderr)
+        message = _format_dependency_message(_PIL_IMPORT_ERROR)
+        _show_dependency_error("Missing dependency", message)
         raise SystemExit(1) from _PIL_IMPORT_ERROR
+
+    if _DEPENDENCY_ERROR is not None:
+        message = _format_dependency_message(_DEPENDENCY_ERROR)
+        _show_dependency_error("Missing dependency", message)
+        raise SystemExit(1) from _DEPENDENCY_ERROR
 
     app = ThermalDelamApp()
     app.run()
