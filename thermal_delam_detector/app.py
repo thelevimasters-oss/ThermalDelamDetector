@@ -20,6 +20,56 @@ except Exception:  # pragma: no cover - fallback when dependency missing
     TkinterDnD = None
 
 
+class Tooltip:
+    """Simple tooltip helper for Tkinter widgets."""
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tipwindow: Optional[tk.Toplevel] = None
+        self.background = "#0F3320"
+        self.foreground = "#f5f7f2"
+
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+        widget.bind("<ButtonPress>", self._hide)
+        widget.bind("<Destroy>", self._hide)
+
+    def _show(self, _event: tk.Event) -> None:  # type: ignore[name-defined]
+        if self.tipwindow or not self.text:
+            return
+        x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 12
+
+        self.tipwindow = tk.Toplevel(self.widget)
+        self.tipwindow.wm_overrideredirect(True)
+        self.tipwindow.wm_attributes("-topmost", True)
+        self.tipwindow.configure(background=self.background)
+
+        label = tk.Label(
+            self.tipwindow,
+            text=self.text,
+            justify=tk.LEFT,
+            background=self.background,
+            foreground=self.foreground,
+            borderwidth=0,
+            font=("Segoe UI", 10),
+            padx=10,
+            pady=6,
+        )
+        label.pack()
+
+        self.tipwindow.update_idletasks()
+        width = self.tipwindow.winfo_width()
+        height = self.tipwindow.winfo_height()
+        self.tipwindow.geometry(f"+{x - width // 2}+{y}")
+
+    def _hide(self, _event: tk.Event | None = None) -> None:  # type: ignore[name-defined]
+        if self.tipwindow is not None:
+            self.tipwindow.destroy()
+            self.tipwindow = None
+
+
 @dataclass(slots=True)
 class GUIState:
     input_folder: Optional[Path] = None
@@ -37,9 +87,31 @@ class ThermalDelamApp:
         self.state = GUIState()
         self.processor = ImageProcessor()
         self.preview_photo: Optional[ImageTk.PhotoImage] = None
+        self.settings_window: Optional[tk.Toplevel] = None
+        self.tooltips: list[Tooltip] = []
+
+        self.threshold_var = tk.DoubleVar(value=self.processor.config.hotspot_percentile)
+        self.min_cluster_var = tk.IntVar(value=self.processor.config.min_cluster_size)
+        self.opening_var = tk.IntVar(value=self.processor.config.opening_iterations)
+        self.closing_var = tk.IntVar(value=self.processor.config.closing_iterations)
+
+        self.input_var = tk.StringVar()
+        self.output_var = tk.StringVar()
+
+        self.threshold_display_var = tk.StringVar()
+        self.min_cluster_display_var = tk.StringVar()
+        self.opening_display_var = tk.StringVar()
+        self.closing_display_var = tk.StringVar()
+
+        self.preview_caption_var = tk.StringVar(value="Preview will appear after processing an image.")
+        self.preview_hint_var = tk.StringVar(
+            value="Adjust settings to refine detection. Use Settings to view recommended ranges."
+        )
+        self.status_var = tk.StringVar()
 
         self._build_style()
         self._build_layout()
+        self._refresh_settings_labels()
         self._bind_shortcuts()
         self._update_status("Drop a folder of RJPG images or choose one to begin.")
         try:
@@ -57,97 +129,388 @@ class ThermalDelamApp:
         else:
             root = tk.Tk()
         root.title("Thermal Delamination Detector")
-        root.geometry("1000x640")
-        root.minsize(900, 560)
+        root.geometry("1200x720")
+        root.minsize(1100, 640)
         return root
 
     def _build_style(self) -> None:
         style = ttk.Style(self.root)
         try:
-            self.root.tk.call("source", "sun-valley.tcl")
-            style.theme_use("sun-valley-dark")
-        except tk.TclError:
             style.theme_use("clam")
+        except tk.TclError:
+            pass
 
-        style.configure("TFrame", background="#1e1f25")
-        style.configure("TLabel", background="#1e1f25", foreground="#f2f2f2")
-        style.configure("TButton", padding=6)
-        style.configure("Horizontal.TScale", background="#1e1f25")
-        style.configure("info.TLabel", foreground="#9ad1ff")
-        style.configure("status.TLabel", foreground="#cccccc")
+        self.root.configure(background="#eef1eb")
+        self.root.option_add("*Font", "Segoe UI 11")
+        self.root.option_add("*TButton.padding", 10)
+        self.root.option_add("*TEntry*FieldBackground", "#ffffff")
+
+        style.configure("TFrame", background="#eef1eb")
+        style.configure("TLabel", background="#eef1eb", foreground="#0F3320")
+
+        style.configure(
+            "Header.TFrame",
+            background="#0F3320",
+            padding=(24, 18),
+        )
+        style.configure(
+            "Header.TLabel",
+            background="#0F3320",
+            foreground="#f5f7f2",
+            font=("Segoe UI", 20, "bold"),
+        )
+        style.configure(
+            "Subheader.TLabel",
+            background="#0F3320",
+            foreground="#dcebd2",
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Card.TFrame",
+            background="#f7f9f5",
+            relief="flat",
+            padding=18,
+        )
+        style.configure(
+            "CardTitle.TLabel",
+            background="#f7f9f5",
+            foreground="#0F3320",
+            font=("Segoe UI", 14, "bold"),
+        )
+        style.configure(
+            "StepNumber.TLabel",
+            background="#f7f9f5",
+            foreground="#84BD00",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.configure(
+            "Hint.TLabel",
+            background="#f7f9f5",
+            foreground="#427829",
+            font=("Segoe UI", 10),
+            wraplength=320,
+        )
+        style.configure(
+            "PreviewCaption.TLabel",
+            background="#f7f9f5",
+            foreground="#0F3320",
+            font=("Segoe UI", 12, "bold"),
+        )
+        style.configure(
+            "Status.TLabel",
+            background="#f7f9f5",
+            foreground="#0F3320",
+            font=("Segoe UI", 10),
+            wraplength=260,
+        )
+
+        style.configure(
+            "TButton",
+            background="#427829",
+            foreground="#f5f7f2",
+            padding=10,
+        )
+        style.map(
+            "TButton",
+            background=[("active", "#2f581e"), ("disabled", "#9fb39f")],
+            foreground=[("disabled", "#e0e0e0")],
+        )
+
+        style.configure(
+            "Accent.TButton",
+            background="#84BD00",
+            foreground="#0F3320",
+            padding=12,
+            font=("Segoe UI", 11, "bold"),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#6ea200"), ("disabled", "#c5dca0")],
+            foreground=[("disabled", "#4f5b47")],
+        )
+
+        style.configure("Horizontal.TScale", background="#f7f9f5")
+        style.configure("Horizontal.TProgressbar", troughcolor="#dbe4d7", background="#84BD00")
 
     def _build_layout(self) -> None:
-        self.root.columnconfigure(0, weight=0)
-        self.root.columnconfigure(1, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
 
-        control_frame = ttk.Frame(self.root, padding=20)
-        control_frame.grid(column=0, row=0, sticky="nsew")
+        header = ttk.Frame(self.root, style="Header.TFrame")
+        header.grid(column=0, row=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
 
-        preview_frame = ttk.Frame(self.root, padding=(10, 20, 20, 20))
-        preview_frame.grid(column=1, row=0, sticky="nsew")
-        preview_frame.columnconfigure(0, weight=1)
-        preview_frame.rowconfigure(0, weight=1)
+        title = ttk.Label(header, text="Thermal Delamination Detector", style="Header.TLabel")
+        title.grid(column=0, row=0, sticky="w")
 
-        self._build_controls(control_frame)
-        self._build_preview(preview_frame)
+        subtitle = ttk.Label(
+            header,
+            text="Guided workflow: choose your thermal set, inspect the preview, then export annotated results.",
+            style="Subheader.TLabel",
+        )
+        subtitle.grid(column=0, row=1, sticky="w", pady=(4, 0))
 
-    def _build_controls(self, frame: ttk.Frame) -> None:
+        self.settings_button = ttk.Button(
+            header,
+            text="Processing Settings",
+            style="Accent.TButton",
+            command=self._open_settings_window,
+        )
+        self.settings_button.grid(column=1, row=0, rowspan=2, sticky="e", padx=(12, 0))
+        self._add_tooltip(
+            self.settings_button,
+            "Open processing settings to tweak detection sensitivity with recommended ranges.",
+        )
+
+        main = ttk.Frame(self.root, padding=(24, 20, 24, 24))
+        main.grid(column=0, row=1, sticky="nsew")
+        main.columnconfigure(0, weight=1)
+        main.columnconfigure(1, weight=3)
+        main.columnconfigure(2, weight=1)
+        main.rowconfigure(0, weight=1)
+
+        self._build_step_one(main)
+        self._build_step_two(main)
+        self._build_step_three(main)
+
+    def _build_step_one(self, parent: ttk.Frame) -> None:
+        frame = ttk.Frame(parent, style="Card.TFrame")
+        frame.grid(column=0, row=0, sticky="nsew", padx=(0, 16))
         frame.columnconfigure(0, weight=1)
 
-        ttk.Label(frame, text="Input folder", style="info.TLabel").grid(column=0, row=0, sticky="w")
-        self.input_var = tk.StringVar()
-        entry = ttk.Entry(frame, textvariable=self.input_var, width=28)
-        entry.grid(column=0, row=1, sticky="ew", pady=(0, 6))
-
-        browse_btn = ttk.Button(frame, text="Browse…", command=self._choose_input_folder)
-        browse_btn.grid(column=0, row=2, sticky="ew")
-
-        ttk.Label(frame, text="Output folder", style="info.TLabel").grid(column=0, row=3, sticky="w", pady=(18, 0))
-        self.output_var = tk.StringVar()
-        output_entry = ttk.Entry(frame, textvariable=self.output_var, width=28)
-        output_entry.grid(column=0, row=4, sticky="ew", pady=(0, 6))
-
-        output_btn = ttk.Button(frame, text="Choose…", command=self._choose_output_folder)
-        output_btn.grid(column=0, row=5, sticky="ew")
-
-        sep = ttk.Separator(frame, orient="horizontal")
-        sep.grid(column=0, row=6, sticky="ew", pady=18)
-
-        self.threshold_var = tk.DoubleVar(value=self.processor.config.hotspot_percentile)
-        ttk.Label(frame, text="Hotspot percentile").grid(column=0, row=7, sticky="w")
-        threshold_scale = ttk.Scale(
+        ttk.Label(frame, text="Step 1", style="StepNumber.TLabel").grid(column=0, row=0, sticky="w")
+        ttk.Label(frame, text="Choose thermal input", style="CardTitle.TLabel").grid(
+            column=0, row=1, sticky="w", pady=(4, 10)
+        )
+        ttk.Label(
             frame,
+            text="Select the folder that contains your RJPG thermal captures. You can also drag and drop a folder anywhere in the window.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=2, sticky="w")
+
+        self.input_entry = ttk.Entry(frame, textvariable=self.input_var)
+        self.input_entry.grid(column=0, row=3, sticky="ew", pady=(12, 6))
+        self._add_tooltip(self.input_entry, "Folder containing the thermal RJPG images you want to analyse.")
+
+        browse_btn = ttk.Button(frame, text="Browse for folder", command=self._choose_input_folder)
+        browse_btn.grid(column=0, row=4, sticky="ew")
+        self._add_tooltip(browse_btn, "Browse your computer to pick the folder of thermal images.")
+
+        next_btn = ttk.Button(frame, text="Next → Preview", command=lambda: self.preview_canvas.focus_set())
+        next_btn.grid(column=0, row=5, sticky="ew", pady=(18, 0))
+        self._add_tooltip(
+            next_btn,
+            "Move to the preview area. The first image will be processed automatically once selected.",
+        )
+
+        ttk.Label(
+            frame,
+            text="Ideal input: a consistent inspection set with similar exposure for best hotspot comparison.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=6, sticky="w", pady=(10, 0))
+
+        if TkinterDnD is not None and DND_FILES is not None:
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind("<<Drop>>", self._handle_drop)
+
+    def _build_step_two(self, parent: ttk.Frame) -> None:
+        frame = ttk.Frame(parent, style="Card.TFrame")
+        frame.grid(column=1, row=0, sticky="nsew")
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(3, weight=1)
+
+        ttk.Label(frame, text="Step 2", style="StepNumber.TLabel").grid(column=0, row=0, sticky="w")
+        ttk.Label(frame, text="Review detection preview", style="CardTitle.TLabel").grid(
+            column=0, row=1, sticky="w", pady=(4, 6)
+        )
+        self.preview_hint_label = ttk.Label(frame, textvariable=self.preview_hint_var, style="Hint.TLabel")
+        self.preview_hint_label.grid(column=0, row=2, sticky="w")
+
+        self.preview_canvas = tk.Canvas(frame, background="#dbe4d7", highlightthickness=0)
+        self.preview_canvas.grid(column=0, row=3, sticky="nsew", pady=(12, 12))
+        self.preview_canvas.create_text(
+            24,
+            24,
+            anchor="nw",
+            text="Preview will appear here once an image is processed.",
+            fill="#0F3320",
+            font=("Segoe UI", 12),
+            width=540,
+            tags=("placeholder",),
+        )
+        self._add_tooltip(
+            self.preview_canvas,
+            "Displays the most recent processed thermal image with detected hotspots highlighted.",
+        )
+
+        caption = ttk.Label(frame, textvariable=self.preview_caption_var, style="PreviewCaption.TLabel")
+        caption.grid(column=0, row=4, sticky="w")
+
+        controls = ttk.Frame(frame, style="Card.TFrame")
+        controls.grid(column=0, row=5, sticky="ew", pady=(8, 0))
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
+
+        refresh_btn = ttk.Button(controls, text="Refresh preview", command=self._refresh_preview)
+        refresh_btn.grid(column=0, row=0, sticky="ew", padx=(0, 8))
+        self._add_tooltip(
+            refresh_btn,
+            "Re-run preview processing using the first image in the selected folder with the current settings.",
+        )
+
+        next_export_btn = ttk.Button(controls, text="Next → Export", command=lambda: self.export_button.focus_set())
+        next_export_btn.grid(column=1, row=0, sticky="ew")
+        self._add_tooltip(next_export_btn, "Continue to export your annotated results to a folder.")
+
+    def _build_step_three(self, parent: ttk.Frame) -> None:
+        frame = ttk.Frame(parent, style="Card.TFrame")
+        frame.grid(column=2, row=0, sticky="nsew", padx=(16, 0))
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text="Step 3", style="StepNumber.TLabel").grid(column=0, row=0, sticky="w")
+        ttk.Label(frame, text="Export annotated images", style="CardTitle.TLabel").grid(
+            column=0, row=1, sticky="w", pady=(4, 6)
+        )
+        ttk.Label(
+            frame,
+            text="Choose where the processed overlays should be saved. Leave blank to create an \"output\" folder next to your input images.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=2, sticky="w")
+
+        self.output_entry = ttk.Entry(frame, textvariable=self.output_var)
+        self.output_entry.grid(column=0, row=3, sticky="ew", pady=(12, 6))
+        self._add_tooltip(self.output_entry, "Optional destination for exported overlays. Leave empty to use an auto-created folder.")
+
+        choose_btn = ttk.Button(frame, text="Choose export location", command=self._choose_output_folder)
+        choose_btn.grid(column=0, row=4, sticky="ew")
+        self._add_tooltip(choose_btn, "Pick a folder where annotated results should be written.")
+
+        self.export_button = ttk.Button(
+            frame,
+            text="Export annotated images",
+            style="Accent.TButton",
+            command=self._process_folder,
+        )
+        self.export_button.grid(column=0, row=5, sticky="ew", pady=(24, 0))
+        self._add_tooltip(
+            self.export_button,
+            "Run detection on the entire folder and save annotated copies plus metadata into the export folder.",
+        )
+
+        ttk.Label(
+            frame,
+            text="Ideal: export to a dedicated project folder for easier QA and traceability.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=6, sticky="w", pady=(10, 0))
+
+        self.progress = ttk.Progressbar(frame, orient="horizontal", mode="determinate")
+        self.progress.grid(column=0, row=7, sticky="ew", pady=(16, 0))
+        self._add_tooltip(self.progress, "Visual indicator of export progress across your image set.")
+
+        ttk.Label(frame, textvariable=self.status_var, style="Status.TLabel").grid(
+            column=0,
+            row=8,
+            sticky="w",
+            pady=(16, 0),
+        )
+
+    def _add_tooltip(self, widget: tk.Widget, text: str) -> None:
+        tooltip = Tooltip(widget, text)
+        self.tooltips.append(tooltip)
+
+    def _refresh_preview(self) -> None:
+        if not self.state.input_folder:
+            messagebox.showinfo("Select images", "Choose an input folder before refreshing the preview.")
+            return
+        first_image = next(discover_images(self.state.input_folder), None)
+        if first_image:
+            self._update_preview(first_image)
+            self._update_status("Preview updated. Adjust settings if hotspots are too loose or too strict.")
+        else:
+            self._update_status("No supported images found in the selected folder.")
+
+    def _open_settings_window(self) -> None:
+        if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.settings_window.focus_set()
+            return
+
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("Processing Settings")
+        self.settings_window.configure(background="#eef1eb")
+        self.settings_window.resizable(False, False)
+        self.settings_window.transient(self.root)
+        self.settings_window.grab_set()
+        self.settings_window.protocol("WM_DELETE_WINDOW", self._close_settings_window)
+
+        container = ttk.Frame(self.settings_window, style="Card.TFrame")
+        container.grid(column=0, row=0, sticky="nsew", padx=16, pady=16)
+        container.columnconfigure(0, weight=1)
+
+        ttk.Label(container, text="Processing settings", style="CardTitle.TLabel").grid(
+            column=0, row=0, sticky="w"
+        )
+        ttk.Label(
+            container,
+            text="Fine-tune detection sensitivity. Ideal ranges are noted beside each control.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=1, sticky="w", pady=(6, 12))
+
+        ttk.Label(container, textvariable=self.threshold_display_var, style="PreviewCaption.TLabel").grid(
+            column=0, row=2, sticky="w"
+        )
+        threshold_scale = ttk.Scale(
+            container,
             from_=70,
             to=99.9,
             orient="horizontal",
             variable=self.threshold_var,
             command=lambda _: self._on_parameters_changed(),
         )
-        threshold_scale.grid(column=0, row=8, sticky="ew")
-        ttk.Label(frame, textvariable=self.threshold_var, style="info.TLabel").grid(column=0, row=9, sticky="w")
+        threshold_scale.grid(column=0, row=3, sticky="ew", pady=(4, 12))
+        self._add_tooltip(
+            threshold_scale,
+            "Percentile cutoff: higher values isolate only the hottest 2–15% of pixels (ideal 85–97%).",
+        )
 
-        self.min_cluster_var = tk.IntVar(value=self.processor.config.min_cluster_size)
-        ttk.Label(frame, text="Minimum hotspot size (px)").grid(column=0, row=10, sticky="w", pady=(12, 0))
+        ttk.Label(container, textvariable=self.min_cluster_display_var, style="PreviewCaption.TLabel").grid(
+            column=0, row=4, sticky="w"
+        )
         min_cluster_spin = ttk.Spinbox(
-            frame,
-            from_=1,
-            to=2000,
-            increment=5,
+            container,
+            from_=10,
+            to=5000,
+            increment=10,
             textvariable=self.min_cluster_var,
             command=self._on_parameters_changed,
+            width=8,
         )
-        min_cluster_spin.grid(column=0, row=11, sticky="ew")
+        min_cluster_spin.grid(column=0, row=5, sticky="ew", pady=(4, 12))
+        self._bind_spinbox_updates(min_cluster_spin)
+        self._add_tooltip(
+            min_cluster_spin,
+            "Minimum connected hotspot size in pixels. Ideal range: 50–400 px depending on sensor resolution.",
+        )
 
-        ttk.Label(frame, text="Morphology iterations").grid(column=0, row=12, sticky="w", pady=(12, 0))
-        morph_frame = ttk.Frame(frame)
-        morph_frame.grid(column=0, row=13, sticky="ew")
+        ttk.Label(container, text="Morphological clean-up", style="PreviewCaption.TLabel").grid(
+            column=0, row=6, sticky="w", pady=(0, 4)
+        )
+        ttk.Label(
+            container,
+            text="Opening removes isolated noise; closing fills small gaps. Ideal: 1–2 iterations for each.",
+            style="Hint.TLabel",
+        ).grid(column=0, row=7, sticky="w")
+
+        morph_frame = ttk.Frame(container, style="Card.TFrame")
+        morph_frame.grid(column=0, row=8, sticky="ew", pady=(10, 12))
         morph_frame.columnconfigure((0, 1), weight=1)
 
-        self.opening_var = tk.IntVar(value=self.processor.config.opening_iterations)
-        self.closing_var = tk.IntVar(value=self.processor.config.closing_iterations)
-        ttk.Label(morph_frame, text="Open").grid(column=0, row=0, sticky="w")
-        ttk.Label(morph_frame, text="Close").grid(column=1, row=0, sticky="w")
+        ttk.Label(morph_frame, textvariable=self.opening_display_var, style="Hint.TLabel").grid(
+            column=0, row=0, sticky="w"
+        )
+        ttk.Label(morph_frame, textvariable=self.closing_display_var, style="Hint.TLabel").grid(
+            column=1, row=0, sticky="w"
+        )
+
         opening_spin = ttk.Spinbox(
             morph_frame,
             from_=0,
@@ -156,7 +519,10 @@ class ThermalDelamApp:
             command=self._on_parameters_changed,
             width=5,
         )
-        opening_spin.grid(column=0, row=1, sticky="ew")
+        opening_spin.grid(column=0, row=1, sticky="ew", pady=(4, 0), padx=(0, 6))
+        self._bind_spinbox_updates(opening_spin)
+        self._add_tooltip(opening_spin, "Opening iterations remove salt noise. Ideal range: 0–2.")
+
         closing_spin = ttk.Spinbox(
             morph_frame,
             from_=0,
@@ -165,37 +531,37 @@ class ThermalDelamApp:
             command=self._on_parameters_changed,
             width=5,
         )
-        closing_spin.grid(column=1, row=1, sticky="ew")
+        closing_spin.grid(column=1, row=1, sticky="ew", pady=(4, 0), padx=(6, 0))
+        self._bind_spinbox_updates(closing_spin)
+        self._add_tooltip(closing_spin, "Closing iterations seal pinholes in hotspots. Ideal range: 1–3.")
 
-        self.process_button = ttk.Button(frame, text="Process images", command=self._process_folder)
-        self.process_button.grid(column=0, row=14, sticky="ew", pady=(24, 0))
+        done_btn = ttk.Button(container, text="Done", command=self._close_settings_window)
+        done_btn.grid(column=0, row=9, sticky="e", pady=(12, 0))
+        self._add_tooltip(done_btn, "Close settings and continue with the guided workflow.")
 
-        self.progress = ttk.Progressbar(frame, orient="horizontal", mode="determinate")
-        self.progress.grid(column=0, row=15, sticky="ew", pady=(12, 0))
+        self._refresh_settings_labels()
 
-        self.status_var = tk.StringVar()
-        ttk.Label(frame, textvariable=self.status_var, style="status.TLabel", wraplength=240).grid(
-            column=0,
-            row=16,
-            sticky="w",
-            pady=(16, 0),
+    def _close_settings_window(self) -> None:
+        if self.settings_window is not None:
+            self.settings_window.destroy()
+            self.settings_window = None
+
+    def _bind_spinbox_updates(self, widget: ttk.Spinbox) -> None:
+        widget.bind("<FocusOut>", lambda _event: self._on_parameters_changed())
+        widget.bind("<Return>", lambda _event: self._on_parameters_changed())
+
+    def _refresh_settings_labels(self) -> None:
+        self.threshold_display_var.set(
+            f"Hotspot percentile: {self.threshold_var.get():.1f}% (Ideal 85–97%)"
         )
-
-        if TkinterDnD is not None and DND_FILES is not None:
-            self.root.drop_target_register(DND_FILES)
-            self.root.dnd_bind("<<Drop>>", self._handle_drop)
-
-    def _build_preview(self, frame: ttk.Frame) -> None:
-        self.preview_canvas = tk.Canvas(frame, background="#101218", highlightthickness=0)
-        self.preview_canvas.grid(column=0, row=0, sticky="nsew")
-        self.preview_canvas.create_text(
-            0,
-            0,
-            anchor="nw",
-            text="Preview will appear here once an image is processed.",
-            fill="#cccccc",
-            font=("Segoe UI", 12),
-            tags=("placeholder",),
+        self.min_cluster_display_var.set(
+            f"Minimum hotspot size: {self.min_cluster_var.get()} px (Ideal 50–400 px)"
+        )
+        self.opening_display_var.set(
+            f"Opening {self.opening_var.get()}× (Ideal 0–2)"
+        )
+        self.closing_display_var.set(
+            f"Closing {self.closing_var.get()}× (Ideal 1–3)"
         )
 
     def _bind_shortcuts(self) -> None:
@@ -239,10 +605,15 @@ class ThermalDelamApp:
             return
         self.state.input_folder = folder
         self.input_var.set(str(folder))
-        self._update_status(f"Loaded {len(images)} images. Adjust settings and process when ready.")
+        self._update_status(
+            f"Loaded {len(images)} images. Review the preview in Step 2 and export when satisfied."
+        )
+        self.preview_caption_var.set("Generating preview…")
+        self.preview_hint_var.set("Creating a quick preview with the current settings.")
         self._update_preview(images[0])
 
     def _on_parameters_changed(self) -> None:
+        self._refresh_settings_labels()
         self.processor.update_config(
             hotspot_percentile=self.threshold_var.get(),
             min_cluster_size=self.min_cluster_var.get(),
@@ -259,20 +630,18 @@ class ThermalDelamApp:
             result = self.processor.process_image(image_path)
         except Exception as exc:  # pragma: no cover - user feedback
             self._update_status(f"Failed to generate preview: {exc}")
+            self.preview_caption_var.set("Preview unavailable")
+            self.preview_hint_var.set("Preview unavailable. Check the console for details and adjust settings if needed.")
             return
 
         preview = result.overlay_image.copy()
         preview.thumbnail((700, 520), self._preview_resample)
         self.preview_photo = ImageTk.PhotoImage(preview)
         self.preview_canvas.delete("all")
-        self.preview_canvas.create_image(10, 10, anchor="nw", image=self.preview_photo)
-        self.preview_canvas.create_text(
-            10,
-            preview.height + 20,
-            anchor="nw",
-            text=f"Preview: {image_path.name}",
-            fill="#cccccc",
-            font=("Segoe UI", 11),
+        self.preview_canvas.create_image(20, 20, anchor="nw", image=self.preview_photo)
+        self.preview_caption_var.set(f"Preview • {image_path.name}")
+        self.preview_hint_var.set(
+            "Lime overlays highlight pixels above the percentile threshold. Adjust the settings if areas look over- or under-detected."
         )
         self.state.latest_result = result
 
@@ -296,9 +665,10 @@ class ThermalDelamApp:
         self.output_var.set(str(output_folder))
 
         self.state.processing = True
-        self.process_button.configure(state=tk.DISABLED)
+        self.export_button.configure(state=tk.DISABLED)
         self.progress.configure(value=0, maximum=len(images))
-        self._update_status("Processing images…")
+        self._update_status("Exporting annotated images…")
+        self.preview_hint_var.set("Export in progress. You can monitor progress from the status panel on the right.")
 
         threading.Thread(
             target=self._process_images_worker,
@@ -315,7 +685,9 @@ class ThermalDelamApp:
                 self.progress.after(
                     0, lambda value=idx: self.progress.configure(value=value)
                 )
-            self._update_status_async(f"Processing complete. Saved results to {output_folder}.")
+            self._update_status_async(
+                f"Export complete. Annotated images saved to {output_folder}."
+            )
         except Exception as exc:  # pragma: no cover - user feedback path
             self._update_status_async(f"Processing stopped: {exc}")
             self.root.after(0, lambda: messagebox.showerror("Processing error", str(exc)))
@@ -324,8 +696,12 @@ class ThermalDelamApp:
 
     def _processing_finished(self) -> None:
         self.state.processing = False
-        self.process_button.configure(state=tk.NORMAL)
+        self.export_button.configure(state=tk.NORMAL)
         self.progress.configure(value=0)
+        if self.state.latest_result is not None:
+            self.preview_hint_var.set(
+                "Export finished. Adjust settings if needed and refresh the preview to validate the changes."
+            )
 
     # ------------------------------------------------------------------
     # Status helpers
