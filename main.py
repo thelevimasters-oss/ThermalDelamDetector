@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -108,15 +107,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def _display_available() -> bool:
-    if sys.platform.startswith("win"):
+    """Return ``True`` if Tk can successfully open a display."""
+
+    try:
+        import tkinter as tk
+    except ModuleNotFoundError:
+        # Tk is not available, so launching the GUI would fail.
+        return False
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return False
+    else:
+        root.withdraw()
+        root.destroy()
         return True
-    if sys.platform == "darwin":
-        return bool(os.environ.get("DISPLAY"))
-    return bool(
-        os.environ.get("DISPLAY")
-        or os.environ.get("WAYLAND_DISPLAY")
-        or os.environ.get("MIR_SOCKET")
-    )
 
 
 def _run_cli(args: argparse.Namespace) -> None:
