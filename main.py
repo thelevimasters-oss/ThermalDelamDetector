@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -19,6 +21,75 @@ _OPTIONAL_DEPENDENCIES: Mapping[str, str] = {
 }
 
 
+def _site_packages_directory() -> Path | None:
+    """Return the directory where ``pip`` will install pure Python packages."""
+
+    try:
+        purelib = sysconfig.get_path("purelib")
+    except (KeyError, OSError):  # pragma: no cover - extremely rare
+        return None
+
+    if not purelib:
+        return None
+
+    return Path(purelib)
+
+
+def _is_writable(path: Path | None) -> bool:
+    """Return ``True`` if ``path`` or one of its parents is writable."""
+
+    if path is None:
+        return False
+
+    current = path
+    while True:
+        if current.exists():
+            return os.access(current, os.W_OK)
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
+def _installation_requires_admin() -> bool:
+    """Determine whether installing packages likely requires admin rights."""
+
+    return not _is_writable(_site_packages_directory())
+
+
+def _confirm_admin_install(package_name: str, *, required: bool) -> bool:
+    """Ask the user whether to continue when admin rights are needed."""
+
+    message = (
+        f"Installing required dependency '{package_name}' requires administrative "
+        "privileges. Please re-run this program as an administrator or install the "
+        "package manually."
+    )
+
+    if not sys.stdin.isatty():
+        if required:
+            raise SystemExit(message)
+        print(message, file=sys.stderr)
+        return False
+
+    prompt = (
+        f"Installing '{package_name}' may require administrative privileges.\n"
+        "Do you want to continue? [y/N]: "
+    )
+    response = input(prompt).strip().lower()
+    if response in {"y", "yes"}:
+        return True
+
+    if required:
+        raise SystemExit(message)
+
+    print(
+        f"Skipping optional dependency '{package_name}' at user request.",
+        file=sys.stderr,
+    )
+    return False
+
+
 def _ensure_module(module_name: str, package_name: str, *, required: bool) -> None:
     """Ensure ``module_name`` can be imported, installing ``package_name`` if needed."""
 
@@ -31,20 +102,45 @@ def _ensure_module(module_name: str, package_name: str, *, required: bool) -> No
             else f"Installing optional dependency: {package_name}"
         )
         print(message, file=sys.stderr)
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-        except subprocess.CalledProcessError as exc:
-            if required:
-                raise SystemExit(
-                    f"Failed to install required dependency '{package_name}'."
-                ) from exc
-            print(
-                f"Warning: optional dependency '{package_name}' could not be installed.",
-                file=sys.stderr,
+
+        if _installation_requires_admin() and not _confirm_admin_install(
+            package_name, required=required
+        ):
+            return
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.stdout:
+            print(result.stdout, file=sys.stdout, end="")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+
+        if result.returncode != 0:
+            error_message = (
+                f"Failed to install {'required' if required else 'optional'} dependency "
+                f"'{package_name}'."
             )
-        else:
-            importlib.invalidate_caches()
-            importlib.import_module(module_name)
+            lowered = (result.stderr or "").lower()
+            if "permission" in lowered or "access is denied" in lowered:
+                error_message += (
+                    " Installation appears to require administrative privileges. "
+                    "Please re-run this program with elevated permissions or "
+                    "install the dependency manually."
+                )
+
+            if required:
+                raise SystemExit(error_message)
+
+            print(f"Warning: {error_message}", file=sys.stderr)
+            return
+
+        importlib.invalidate_caches()
+        importlib.import_module(module_name)
 
 
 def ensure_dependencies() -> None:
