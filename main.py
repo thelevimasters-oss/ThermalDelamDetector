@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from thermal_delam_detector._tk_utils import can_initialise_tk
+
 
 _REQUIRED_DEPENDENCIES: Mapping[str, str] = {
     "PIL": "Pillow",
@@ -109,20 +111,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def _display_available() -> bool:
     """Return ``True`` if Tk can successfully open a display."""
 
-    try:
-        import tkinter as tk
-    except ModuleNotFoundError:
-        # Tk is not available, so launching the GUI would fail.
-        return False
-
-    try:
-        root = tk.Tk()
-    except tk.TclError:
-        return False
-    else:
-        root.withdraw()
-        root.destroy()
-        return True
+    return can_initialise_tk()
 
 
 def _run_cli(args: argparse.Namespace) -> None:

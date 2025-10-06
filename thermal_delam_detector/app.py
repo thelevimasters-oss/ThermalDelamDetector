@@ -10,6 +10,8 @@ from typing import Callable, Optional
 
 import sys
 
+from ._tk_utils import can_initialise_tk
+
 try:
     from PIL import Image, ImageTk
 except ModuleNotFoundError as exc:  # pragma: no cover - handled at runtime
@@ -20,6 +22,13 @@ else:
     _PIL_IMPORT_ERROR = None
 
 _DEPENDENCY_ERROR: ModuleNotFoundError | None = None
+
+_DISPLAY_ERROR_MESSAGE = (
+    "The graphical interface could not be started because Tk was unable to initialise. "
+    "Ensure that a display server is available (for example by setting the DISPLAY "
+    "environment variable) before launching the application, or run the tool in "
+    "headless mode via `python main.py --input <folder>` instead."
+)
 
 if _PIL_IMPORT_ERROR is None:
     try:
@@ -829,15 +838,14 @@ def launch() -> None:
         _show_dependency_error("Missing dependency", message)
         raise SystemExit(1) from _DEPENDENCY_ERROR
 
+    if not can_initialise_tk():
+        print(f"ERROR: {_DISPLAY_ERROR_MESSAGE}", file=sys.stderr)
+        raise SystemExit(1)
+
     try:
         app = ThermalDelamApp()
     except tk.TclError as exc:  # pragma: no cover - depends on runtime environment
-        message = (
-            "The graphical interface could not be started because Tk was unable to initialise. "
-            "Ensure that a display server is available (for example by setting the DISPLAY "
-            "environment variable) before launching the application."
-        )
-        _show_dependency_error("Display unavailable", message)
+        _show_dependency_error("Display unavailable", _DISPLAY_ERROR_MESSAGE)
         raise SystemExit(1) from exc
 
     app.run()
