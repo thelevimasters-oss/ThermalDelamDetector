@@ -41,6 +41,11 @@ automatically install required Python dependencies (``Pillow`` and ``numpy``) an
 
 > **Windows users:** The launcher assumes a graphical desktop is present, so you can simply run `python main.py` (or `py -3 main.py`) and the GUI will open. There is no need to set a `DISPLAY` environment variable on Windows; just ensure your Python installation includes the optional Tcl/Tk components.
 
+If you encounter the "Tk was unable to initialise" message on Windows, it typically
+means that Python was installed without the Tcl/Tk libraries. Re-run the official
+Python installer and make sure the **"tcl/tk and IDLE"** feature is selected, then
+launch the application again.
+
 1. Drop a folder of RJPG/JPEG/TIFF thermal images onto the window or choose it via the **Browse** button.
 2. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
 3. Click **Process images** to export annotated overlays to the selected output folder (defaults to `<input>/processed`).

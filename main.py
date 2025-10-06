@@ -202,33 +202,55 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _display_available() -> bool:
-    """Return ``True`` if Tk can successfully open a display."""
+def _display_status() -> tuple[bool, str | None]:
+    """Return display availability together with an optional failure reason."""
 
-    # Windows bundles an embedded display server with Tk, so if ``tkinter`` can
-    # be imported we assume the GUI can launch without probing further. Creating
-    # a root window is still safe on Windows, but skipping it avoids spurious
-    # ``TclError`` exceptions on systems where the display is available yet Tk
-    # momentarily fails to initialise during the probe (for example when Python
-    # starts before the shell session is ready). Other platforms still create a
-    # temporary root window to confirm that Tk can talk to the system display.
     try:
         import tkinter as tk
     except ModuleNotFoundError:
-        # Tk is not available, so launching the GUI would fail.
-        return False
+        return False, (
+            "Python was built without the Tkinter module. Install Python with the "
+            "optional Tcl/Tk components (the \"Tcl/tk and IDLE\" feature in the official "
+            "installer) or use a distribution that bundles Tk."
+        )
+    except ImportError as exc:
+        return False, (
+            "Tkinter could not be imported. The underlying error was: "
+            f"{exc}. Reinstall or repair Python so that the Tcl/Tk libraries are available."
+        )
 
     if sys.platform.startswith("win"):
-        return True
+        # When Tkinter imports successfully on Windows we normally assume a display
+        # is available. However, some minimal Python builds ship the ``tkinter``
+        # package without the native Tcl/Tk DLLs. Importing succeeds but creating a
+        # root window raises ``TclError`` immediately. Probing for a root window lets
+        # us surface that specific failure mode with a clearer message.
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            return False, (
+                "Tk reported an initialisation error: "
+                f"{exc}. This usually means Tcl/Tk was not installed. "
+                "Re-run the official Python installer and ensure the "
+                '"tcl/tk and IDLE" feature is selected.'
+            )
+        else:
+            root.withdraw()
+            root.destroy()
+            return True, None
 
     try:
         root = tk.Tk()
-    except tk.TclError:
-        return False
+    except tk.TclError as exc:
+        return False, (
+            "Tk could not connect to a display server. Ensure an X11/Wayland "
+            "session is running and that the DISPLAY environment variable is "
+            f"set correctly. Underlying error: {exc}"
+        )
     else:
         root.withdraw()
         root.destroy()
-        return True
+        return True, None
 
 
 def _run_cli(args: argparse.Namespace) -> None:
@@ -293,11 +315,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         _run_cli(args)
         return
 
-    if not args.force_gui and not _display_available():
-        raise SystemExit(
-            "No display detected. Provide --input to process images in headless mode "
-            "or re-run with --force-gui after configuring a display server."
+    display_available, display_error = _display_status()
+    if not args.force_gui and not display_available:
+        message = [
+            "The graphical interface could not be started because Tk was unable to initialise.",
+        ]
+        if display_error:
+            message.append(display_error)
+        message.append(
+            "If you are running the tool on a headless machine, launch the batch processor "
+            "instead with 'python main.py --input <folder-with-images>' (optionally add "
+            "'--output' to choose the destination)."
         )
+        raise SystemExit("\n".join(message))
 
     from thermal_delam_detector.app import launch
 
