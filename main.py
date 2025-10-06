@@ -367,6 +367,154 @@ def _maybe_prompt_for_input(args: argparse.Namespace) -> argparse.Namespace | No
         print(f"Folder does not exist or is not a directory: {candidate}")
 
 
+def _interactive_headless_session(args: argparse.Namespace) -> argparse.Namespace | None:
+    """Guide the user through configuring a batch run when no GUI is available."""
+
+    if not sys.stdin.isatty():
+        return None
+
+    from thermal_delam_detector.processing import ImageProcessor
+
+    processor = ImageProcessor()
+
+    print(
+        "\nA graphical environment was not detected. Switching to the interactive "
+        "console workflow so the Thermal Delamination Detector can still be used."
+    )
+    print("Press Ctrl+C at any prompt to cancel. Leave an entry blank to accept the default.")
+
+    def _prompt_path(prompt: str, *, must_exist: bool) -> Path | None:
+        while True:
+            try:
+                response = input(prompt).strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nOperation cancelled.")
+                raise SystemExit(1)
+
+            if not response:
+                return None
+
+            candidate = Path(response).expanduser().resolve()
+            if not must_exist:
+                return candidate
+
+            if candidate.exists() and candidate.is_dir():
+                return candidate
+
+            print(f"Folder does not exist or is not a directory: {candidate}")
+
+    def _prompt_float(prompt: str, default: float) -> float:
+        while True:
+            try:
+                response = input(f"{prompt} [{default}]: ").strip()
+            except EOFError:
+                return default
+            except KeyboardInterrupt:
+                print("\nOperation cancelled.")
+                raise SystemExit(1)
+
+            if not response:
+                return default
+
+            try:
+                value = float(response)
+            except ValueError:
+                print("Please enter a valid number.")
+                continue
+
+            return value
+
+    def _prompt_int(prompt: str, default: int, *, allow_zero: bool = False) -> int:
+        while True:
+            try:
+                response = input(f"{prompt} [{default}]: ").strip()
+            except EOFError:
+                return default
+            except KeyboardInterrupt:
+                print("\nOperation cancelled.")
+                raise SystemExit(1)
+
+            if not response:
+                return default
+
+            try:
+                value = int(response)
+            except ValueError:
+                print("Please enter an integer value.")
+                continue
+
+            if value <= 0 and not allow_zero:
+                print("Please enter a positive integer.")
+                continue
+
+            return value
+
+    input_folder = None
+    while input_folder is None:
+        input_folder = _prompt_path("Input folder path: ", must_exist=True)
+        if input_folder is None:
+            print("Input folder is required to continue.")
+            continue
+    output_folder = _prompt_path(
+        "Output folder (leave blank to use '<input>/processed'): ", must_exist=False
+    )
+
+    hotspot = _prompt_float(
+        "Hotspot percentile", processor.config.hotspot_percentile
+    )
+    min_cluster = _prompt_int(
+        "Minimum cluster size (pixels)", processor.config.min_cluster_size
+    )
+    opening = _prompt_int(
+        "Opening iterations", processor.config.opening_iterations, allow_zero=True
+    )
+    closing = _prompt_int(
+        "Closing iterations", processor.config.closing_iterations, allow_zero=True
+    )
+
+    def _prompt_kernel(default: int) -> int:
+        while True:
+            value = _prompt_int("Kernel size (odd integer)", default)
+            if value % 2 == 1:
+                return value
+            print("Kernel size must be an odd integer.")
+
+    kernel_size = _prompt_kernel(processor.config.kernel_size)
+
+    updated = argparse.Namespace(**vars(args))
+    updated.input = input_folder
+    updated.output = output_folder
+    updated.hotspot_percentile = hotspot
+    updated.min_cluster_size = min_cluster
+    updated.opening_iterations = opening
+    updated.closing_iterations = closing
+    updated.kernel_size = kernel_size
+
+    print("\nConfiguration summary:")
+    print(f"  Input folder : {input_folder}")
+    print(
+        "  Output folder: "
+        + (str(output_folder) if output_folder is not None else "<input>/processed")
+    )
+    print(f"  Hotspot percentile  : {hotspot}")
+    print(f"  Minimum cluster size: {min_cluster}")
+    print(f"  Opening iterations  : {opening}")
+    print(f"  Closing iterations  : {closing}")
+    print(f"  Kernel size         : {kernel_size}")
+
+    try:
+        proceed = input("\nProceed with processing? [Y/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nOperation cancelled.")
+        raise SystemExit(1)
+
+    if proceed not in {"", "y", "yes"}:
+        print("Processing aborted at user request.")
+        raise SystemExit(0)
+
+    return updated
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv)
     ensure_dependencies()
@@ -382,8 +530,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             _run_cli(prompted_args)
             return
 
+        interactive_args = _interactive_headless_session(args)
+        if interactive_args is not None and interactive_args.input is not None:
+            _run_cli(interactive_args)
+            return
+
         message = [
             "The graphical interface could not be started because Tk was unable to initialise.",
+            "A console-based workflow could not be started automatically (no interactive "
+            "terminal was detected).",
         ]
         if display_status.error:
             message.append(display_status.error)

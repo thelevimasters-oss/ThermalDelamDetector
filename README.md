@@ -67,8 +67,9 @@ Additional optional flags mirror the GUI controls:
 - `--opening-iterations` / `--closing-iterations` – morphological cleanup iterations (default `1`).
 - `--kernel-size` – kernel size for the morphology operations (default `3`).
 
-When no display is detected and `--input` is omitted the script will exit with a helpful message instead of throwing a Tk
-initialisation error. Pass `--force-gui` to override the display check when you know a display server is available.
+When no display is detected and `--input` is omitted the script now drops into an interactive console workflow that walks you
+through selecting folders and adjusting processing parameters. This makes it possible to use the tool even on servers accessed
+via SSH. Pass `--force-gui` to override the display check when you know a display server is available.
 
 ## Automating the processing pipeline
 
