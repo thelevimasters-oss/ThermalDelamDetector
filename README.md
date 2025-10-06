@@ -1,6 +1,6 @@
 # Thermal Delamination Detector
 
-A desktop application for civil engineers to review thermal RJPG imagery and highlight potential bridge deck delaminations without relying on AI models.
+A Python-based desktop application for civil engineers to review thermal RJPG imagery and highlight potential bridge deck delaminations without relying on AI models. The repository ships as a plain Python script so you can launch the tool directly from source or integrate the processing pipeline into your own automation.
 
 ## Features
 
@@ -9,18 +9,51 @@ A desktop application for civil engineers to review thermal RJPG imagery and hig
 - Deterministic thermal processing pipeline that normalizes, thresholds, denoises, and highlights hotspots in red.
 - Batch export that preserves EXIF metadata for downstream orthomosaic and GIS workflows.
 
-## Getting started
+## Requirements
 
-1. Ensure Python 3.10+ is installed along with the `pillow` and `numpy` packages.
-2. From the project root run:
+- Python 3.10 or newer.
+- Python packages: [`pillow`](https://pypi.org/project/Pillow/) and [`numpy`](https://pypi.org/project/numpy/).
+- Optional: [`tkinterdnd2`](https://pypi.org/project/tkinterdnd2/) to enable drag-and-drop on Windows/Linux.
 
-   ```bash
-   python main.py
-   ```
+You can install the dependencies into a virtual environment with:
 
-3. Drop a folder of RJPG/JPEG/TIFF thermal images onto the window or choose it via the "Browse" button.
-4. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
-5. Click **Process images** to export annotated overlays to the selected output folder (defaults to `<input>/processed`).
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install pillow numpy tkinterdnd2
+```
+
+The `tkinterdnd2` package is optional; omit it if you do not need drag-and-drop support.
+
+## Running the Python script
+
+From the project root run either of the following entry points to launch the Tkinter GUI:
+
+```bash
+python main.py
+# or
+python -m thermal_delam_detector.app
+```
+
+Both commands call the same `launch()` function that builds the GUI and starts the mainloop. When the window opens:
+
+1. Drop a folder of RJPG/JPEG/TIFF thermal images onto the window or choose it via the **Browse** button.
+2. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
+3. Click **Process images** to export annotated overlays to the selected output folder (defaults to `<input>/processed`).
+
+## Automating the processing pipeline
+
+The core logic for detecting delaminations lives in `thermal_delam_detector/processing.py`. If you prefer to script processing without the GUI, you can import the `ImageProcessor` class and call `process_folder()` from your own Python code:
+
+```python
+from pathlib import Path
+from thermal_delam_detector.processing import ImageProcessor
+
+processor = ImageProcessor()
+results = processor.process_folder(Path("/path/to/images"), Path("/path/to/output"))
+```
+
+Each `ProcessingResult` includes the rendered overlay and metadata about hotspots, enabling further customization.
 
 ## Notes
 
