@@ -835,7 +835,10 @@ def launch() -> None:
         message = (
             "The graphical interface could not be started because Tk was unable to initialise. "
             "Ensure that a display server is available (for example by setting the DISPLAY "
-            "environment variable) before launching the application."
+            "environment variable) before launching the application.\n\n"
+            "If you are running the tool on a headless machine, launch the batch processor instead "
+            "with `python main.py --input <folder-with-images>` (optionally add --output to choose "
+            "the destination)."
         )
         _show_dependency_error("Display unavailable", message)
         raise SystemExit(1) from exc
