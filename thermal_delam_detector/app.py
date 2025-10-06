@@ -8,10 +8,23 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from PIL import Image, ImageTk
+import sys
 
-from .io_utils import discover_images, ensure_output_folder, save_with_metadata
-from .processing import ImageProcessor, ProcessingResult
+try:
+    from PIL import Image, ImageTk
+except ModuleNotFoundError as exc:  # pragma: no cover - handled at runtime
+    Image = None  # type: ignore[assignment]
+    ImageTk = None  # type: ignore[assignment]
+    _PIL_IMPORT_ERROR = exc
+else:
+    _PIL_IMPORT_ERROR = None
+
+if _PIL_IMPORT_ERROR is None:
+    from .io_utils import discover_images, ensure_output_folder, save_with_metadata
+    from .processing import ImageProcessor, ProcessingResult
+else:  # pragma: no cover - dependency missing path
+    discover_images = ensure_output_folder = save_with_metadata = None  # type: ignore[assignment]
+    ImageProcessor = ProcessingResult = None  # type: ignore[assignment]
 
 try:  # Optional drag-and-drop support
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -723,6 +736,20 @@ class ThermalDelamApp:
 
 
 def launch() -> None:
+    if _PIL_IMPORT_ERROR is not None:
+        message = (
+            "The Pillow library is required to run the Thermal Delamination Detector. "
+            "Install it with `pip install pillow` and restart the application."
+        )
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Missing dependency", message)
+            root.destroy()
+        except tk.TclError:
+            print(f"ERROR: {message}", file=sys.stderr)
+        raise SystemExit(1) from _PIL_IMPORT_ERROR
+
     app = ThermalDelamApp()
     app.run()
 
