@@ -8,6 +8,7 @@ import subprocess
 import sys
 import sysconfig
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 
@@ -202,21 +203,34 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _display_status() -> tuple[bool, str | None]:
+@dataclass(frozen=True)
+class _DisplayStatus:
+    available: bool
+    error: str | None = None
+    display_connection_issue: bool = False
+
+
+def _display_status() -> _DisplayStatus:
     """Return display availability together with an optional failure reason."""
 
     try:
         import tkinter as tk
     except ModuleNotFoundError:
-        return False, (
-            "Python was built without the Tkinter module. Install Python with the "
-            "optional Tcl/Tk components (the \"Tcl/tk and IDLE\" feature in the official "
-            "installer) or use a distribution that bundles Tk."
+        return _DisplayStatus(
+            available=False,
+            error=(
+                "Python was built without the Tkinter module. Install Python with the "
+                "optional Tcl/Tk components (the \"Tcl/tk and IDLE\" feature in the official "
+                "installer) or use a distribution that bundles Tk."
+            ),
         )
     except ImportError as exc:
-        return False, (
-            "Tkinter could not be imported. The underlying error was: "
-            f"{exc}. Reinstall or repair Python so that the Tcl/Tk libraries are available."
+        return _DisplayStatus(
+            available=False,
+            error=(
+                "Tkinter could not be imported. The underlying error was: "
+                f"{exc}. Reinstall or repair Python so that the Tcl/Tk libraries are available."
+            ),
         )
 
     if sys.platform.startswith("win"):
@@ -228,29 +242,36 @@ def _display_status() -> tuple[bool, str | None]:
         try:
             root = tk.Tk()
         except tk.TclError as exc:
-            return False, (
-                "Tk reported an initialisation error: "
-                f"{exc}. This usually means Tcl/Tk was not installed. "
-                "Re-run the official Python installer and ensure the "
-                '"tcl/tk and IDLE" feature is selected.'
+            return _DisplayStatus(
+                available=False,
+                error=(
+                    "Tk reported an initialisation error: "
+                    f"{exc}. This usually means Tcl/Tk was not installed. "
+                    "Re-run the official Python installer and ensure the "
+                    '"tcl/tk and IDLE" feature is selected.'
+                ),
             )
         else:
             root.withdraw()
             root.destroy()
-            return True, None
+            return _DisplayStatus(available=True)
 
     try:
         root = tk.Tk()
     except tk.TclError as exc:
-        return False, (
-            "Tk could not connect to a display server. Ensure an X11/Wayland "
-            "session is running and that the DISPLAY environment variable is "
-            f"set correctly. Underlying error: {exc}"
+        return _DisplayStatus(
+            available=False,
+            error=(
+                "Tk could not connect to a display server. Ensure an X11/Wayland "
+                "session is running and that the DISPLAY environment variable is "
+                f"set correctly. Underlying error: {exc}"
+            ),
+            display_connection_issue=True,
         )
     else:
         root.withdraw()
         root.destroy()
-        return True, None
+        return _DisplayStatus(available=True)
 
 
 def _run_cli(args: argparse.Namespace) -> None:
@@ -315,18 +336,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         _run_cli(args)
         return
 
-    display_available, display_error = _display_status()
-    if not args.force_gui and not display_available:
+    display_status = _display_status()
+    if not args.force_gui and not display_status.available:
         message = [
             "The graphical interface could not be started because Tk was unable to initialise.",
         ]
-        if display_error:
-            message.append(display_error)
-        message.append(
-            "If you are running the tool on a headless machine, launch the batch processor "
-            "instead with 'python main.py --input <folder-with-images>' (optionally add "
-            "'--output' to choose the destination)."
-        )
+        if display_status.error:
+            message.append(display_status.error)
+        if display_status.display_connection_issue:
+            message.append(
+                "If you are running the tool on a headless machine, launch the batch processor "
+                "instead with 'python main.py --input <folder-with-images>' (optionally add "
+                "'--output' to choose the destination)."
+            )
         raise SystemExit("\n".join(message))
 
     from thermal_delam_detector.app import launch
