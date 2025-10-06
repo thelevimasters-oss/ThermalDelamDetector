@@ -195,7 +195,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     from thermal_delam_detector.app import launch
 
-    launch()
+    launch(force_gui=args.force_gui)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point

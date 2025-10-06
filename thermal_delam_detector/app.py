@@ -855,7 +855,7 @@ def _format_dependency_message(exc: ModuleNotFoundError) -> str:
     )
 
 
-def launch() -> None:
+def launch(*, force_gui: bool = False) -> None:
     if _PIL_IMPORT_ERROR is not None:
         message = _format_dependency_message(_PIL_IMPORT_ERROR)
         _show_dependency_error("Missing dependency", message)
@@ -866,7 +866,7 @@ def launch() -> None:
         _show_dependency_error("Missing dependency", message)
         raise SystemExit(1) from _DEPENDENCY_ERROR
 
-    if not _display_available():
+    if not force_gui and not _display_available():
         message = (
             "The graphical interface could not be started because Tk was unable to initialise. "
             "Ensure that a display server is available (for example by setting the DISPLAY "
