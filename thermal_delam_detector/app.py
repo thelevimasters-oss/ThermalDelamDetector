@@ -20,6 +20,7 @@ else:
     _PIL_IMPORT_ERROR = None
 
 _DEPENDENCY_ERROR: ModuleNotFoundError | None = None
+_DISPLAY_AVAILABLE: bool | None = None
 
 if _PIL_IMPORT_ERROR is None:
     try:
@@ -794,7 +795,43 @@ class ThermalDelamApp:
         self.root.mainloop()
 
 
-def _show_dependency_error(title: str, message: str) -> None:
+def _display_available() -> bool:
+    """Return ``True`` if Tk can successfully open a display."""
+
+    global _DISPLAY_AVAILABLE
+    if _DISPLAY_AVAILABLE is not None:
+        return _DISPLAY_AVAILABLE
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        _DISPLAY_AVAILABLE = False
+        return _DISPLAY_AVAILABLE
+    else:
+        try:
+            root.withdraw()
+        finally:
+            root.destroy()
+            # ``tk`` caches the default root. Reset it so the real GUI
+            # instance created later does not interact with this probe.
+            try:  # pragma: no cover - attribute may not exist
+                tk._default_root = None  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover - defensive safety net
+                pass
+        _DISPLAY_AVAILABLE = True
+        return _DISPLAY_AVAILABLE
+
+
+def _show_dependency_error(
+    title: str, message: str, *, display_available: bool | None = None
+) -> None:
+    if display_available is None:
+        display_available = _display_available()
+
+    if not display_available:
+        print(f"ERROR: {message}", file=sys.stderr)
+        return
+
     try:
         root = tk.Tk()
         root.withdraw()
@@ -828,6 +865,20 @@ def launch() -> None:
         message = _format_dependency_message(_DEPENDENCY_ERROR)
         _show_dependency_error("Missing dependency", message)
         raise SystemExit(1) from _DEPENDENCY_ERROR
+
+    if not _display_available():
+        message = (
+            "The graphical interface could not be started because Tk was unable to initialise. "
+            "Ensure that a display server is available (for example by setting the DISPLAY "
+            "environment variable) before launching the application.\n\n"
+            "If you are running the tool on a headless machine, launch the batch processor instead "
+            "with `python main.py --input <folder-with-images>` (optionally add --output to choose "
+            "the destination)."
+        )
+        _show_dependency_error(
+            "Display unavailable", message, display_available=False
+        )
+        raise SystemExit(1)
 
     try:
         app = ThermalDelamApp()
