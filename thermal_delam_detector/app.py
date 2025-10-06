@@ -875,11 +875,7 @@ def launch(*, force_gui: bool = False) -> None:
             "The graphical interface could not be started because Tk was unable to initialise. "
             "Ensure that a display server is available (for example an X/Wayland session on Linux "
             "or the default Windows desktop) before launching the application. On Windows make "
-            "sure that Python was installed with the optional Tcl/Tk components.\n\n"
-            "When no display is available the application now falls back to an interactive "
-            "console workflow. Run `python main.py` from a terminal to follow the prompts, or "
-            "launch the batch processor directly with `python main.py --input <folder-with-images>` "
-            "(optionally add --output to choose the destination)."
+            "sure that Python was installed with the optional Tcl/Tk components."
         )
         _show_dependency_error(
             "Display unavailable", message, display_available=False
@@ -893,11 +889,7 @@ def launch(*, force_gui: bool = False) -> None:
             "The graphical interface could not be started because Tk was unable to initialise. "
             "Ensure that a display server is available (for example an X/Wayland session on Linux "
             "or the default Windows desktop) before launching the application. On Windows make "
-            "sure that Python was installed with the optional Tcl/Tk components.\n\n"
-            "When no display is available the application now falls back to an interactive "
-            "console workflow. Run `python main.py` from a terminal to follow the prompts, or "
-            "launch the batch processor directly with `python main.py --input <folder-with-images>` "
-            "(optionally add --output to choose the destination)."
+            "sure that Python was installed with the optional Tcl/Tk components."
         )
         _show_dependency_error("Display unavailable", message)
         raise SystemExit(1) from exc
