@@ -818,7 +818,17 @@ def launch() -> None:
         _show_dependency_error("Missing dependency", message)
         raise SystemExit(1) from _DEPENDENCY_ERROR
 
-    app = ThermalDelamApp()
+    try:
+        app = ThermalDelamApp()
+    except tk.TclError as exc:  # pragma: no cover - depends on runtime environment
+        message = (
+            "The graphical interface could not be started because Tk was unable to initialise. "
+            "Ensure that a display server is available (for example by setting the DISPLAY "
+            "environment variable) before launching the application."
+        )
+        _show_dependency_error("Display unavailable", message)
+        raise SystemExit(1) from exc
+
     app.run()
 
 
