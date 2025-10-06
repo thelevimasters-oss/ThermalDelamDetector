@@ -43,6 +43,26 @@ automatically install required Python dependencies (``Pillow`` and ``numpy``) an
 2. Adjust the percentile, minimum hotspot size, and morphology sliders until the preview looks right.
 3. Click **Process images** to export annotated overlays to the selected output folder (defaults to `<input>/processed`).
 
+### Running without a display
+
+If you are on a headless environment where Tk cannot initialise (for example a remote server without an X/Wayland session),
+the `main.py` entry point also exposes a batch-processing mode. Provide an input directory containing supported images and the
+tool will save processed overlays to `<input>/processed` (or a custom output directory via `--output`):
+
+```bash
+python main.py --input /path/to/images --output /path/to/output
+```
+
+Additional optional flags mirror the GUI controls:
+
+- `--hotspot-percentile` – adjust the percentile threshold (default `97`).
+- `--min-cluster-size` – minimum hotspot size in pixels (default `45`).
+- `--opening-iterations` / `--closing-iterations` – morphological cleanup iterations (default `1`).
+- `--kernel-size` – kernel size for the morphology operations (default `3`).
+
+When no display is detected and `--input` is omitted the script will exit with a helpful message instead of throwing a Tk
+initialisation error. Pass `--force-gui` to override the display check when you know a display server is available.
+
 ## Automating the processing pipeline
 
 The core logic for detecting delaminations lives in `thermal_delam_detector/processing.py`. If you prefer to script processing without the GUI, you can import the `ImageProcessor` class and call `process_folder()` from your own Python code:
